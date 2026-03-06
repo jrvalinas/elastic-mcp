@@ -1,0 +1,110 @@
+version: "3.8"
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: elasticsearch-node
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - es_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - es_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    container_name: logstash
+    volumes:
+      - logstash_config:/usr/share/logstash/config
+      - logstash_pipeline:/usr/share/logstash/pipeline
+    ports:
+      - "1514:1514/udp"
+    environment:
+      - xpack.monitoring.enabled=false
+    networks:
+      - es_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  seed-logs:
+    image: curlimages/curl:8.10.1
+    container_name: seed-logs
+    command: >
+      sh -c "
+      sleep 8;
+      curl -s -X PUT http://elasticsearch:9200/logs-test-000001;
+      curl -s -H 'Content-Type: application/x-ndjson' -X POST http://elasticsearch:9200/_bulk --data-binary @- <<'EOF'
+      {\"index\":{\"_index\":\"logs-test-000001\"}}
+      {\"@timestamp\":\"2026-03-06T10:00:00Z\",\"service\":{\"name\":\"api-gateway\"},\"log\":{\"level\":\"INFO\"},\"message\":\"request started\",\"trace\":{\"id\":\"trace-123\"}}
+      {\"index\":{\"_index\":\"logs-test-000001\"}}
+      {\"@timestamp\":\"2026-03-06T10:00:01Z\",\"service\":{\"name\":\"orders\"},\"log\":{\"level\":\"ERROR\"},\"message\":\"db timeout\",\"trace\":{\"id\":\"trace-123\"}}
+      {\"index\":{\"_index\":\"logs-test-000001\"}}
+      {\"@timestamp\":\"2026-03-06T10:00:03Z\",\"service\":{\"name\":\"orders\"},\"log\":{\"level\":\"WARN\"},\"message\":\"retrying query\",\"trace\":{\"id\":\"trace-123\"}}
+      {\"index\":{\"_index\":\"logs-test-000001\"}}
+      {\"@timestamp\":\"2026-03-06T10:00:04Z\",\"service\":{\"name\":\"payments\"},\"log\":{\"level\":\"INFO\"},\"message\":\"payment authorized\",\"trace\":{\"id\":\"trace-999\"}}
+      EOF
+      "
+    networks:
+      - es_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: "no"
+
+  mcp-elastic-logs:
+    build: .
+    container_name: mcp-elastic-logs
+    ports:
+      - "8091:8091"
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=test
+      - ELASTICSEARCH_PASSWORD=test
+      - ELASTICSEARCH_INDEX_PATTERN=logs-*
+      - ELASTICSEARCH_VERIFY_CERTS=false
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8091
+    networks:
+      - es_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      seed-logs:
+        condition: service_completed_successfully
+
+volumes:
+  es_data:
+    driver: local
+  logstash_config:
+    driver: local
+  logstash_pipeline:
+    driver: local
+
+networks:
+  es_network:
+    driver: bridge

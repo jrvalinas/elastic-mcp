@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-elastic-logs"
+version = "0.1.0"
+description = "Small MCP server for Elasticsearch log diagnosis"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [
+  { name = "MCP Elastic Logs" }
+]
+dependencies = [
+  "elasticsearch>=8.14.0",
+  "fastmcp>=2.0.0",
+  "pydantic>=2.8.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0"
+]
+
+[project.scripts]
+mcp-elastic-logs = "mcp_elastic_logs.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_elastic_logs"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
