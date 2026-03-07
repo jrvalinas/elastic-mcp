@@ -142,7 +142,7 @@ async def _search_logs(
             query={"bool": {"must": must_filters}},
             sort=[{schema.timestamp_field: {"order": sort_order}}],
             size=limit,
-            source=source_fields,
+            _source=source_fields,
             track_total_hits=False,
         )
     except NotFoundError as exc:
@@ -151,11 +151,7 @@ async def _search_logs(
     hits = result.get("hits", {}).get("hits", [])
     normalized = [_normalize_hit(hit, schema) for hit in hits]
 
-    return LogSearchResponse(
-        schema=schema,
-        total=len(normalized),
-        logs=normalized,
-    )
+    return LogSearchResponse(schema=schema, total=len(normalized), logs=normalized)
 
 
 def register_log_tools(mcp: FastMCP) -> None:
@@ -204,7 +200,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             limit=limit,
             sort_order="desc",
         )
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool()
     async def get_logs_for_service(
@@ -235,7 +231,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             limit=limit,
             sort_order="desc",
         )
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool()
     async def get_logs_by_correlation_id(
@@ -269,7 +265,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             limit=limit,
             sort_order="asc",
         )
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool()
     async def diagnose_issue(
@@ -312,11 +308,11 @@ def register_log_tools(mcp: FastMCP) -> None:
 
         diagnosis = DiagnoseIssueResponse(
             mode=mode,
-            schema=response.schema,
+            schema=response.schema_data,
             total=response.total,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
             counts_by_level=counts_by_level,
             logs=response.logs,
         )
-        return diagnosis.model_dump()
+        return diagnosis.model_dump(by_alias=True)

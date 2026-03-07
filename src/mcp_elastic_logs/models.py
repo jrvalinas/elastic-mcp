@@ -51,7 +51,7 @@ class PingResponse(BaseModel):
 class LogSearchResponse(BaseModel):
     """Response returned by log-search tools."""
 
-    schema: DiscoveredSchema
+    schema_data: DiscoveredSchema = Field(alias="schema", serialization_alias="schema")
     total: int
     logs: list[NormalizedLogEntry]
 
@@ -60,7 +60,7 @@ class DiagnoseIssueResponse(BaseModel):
     """Response returned by the diagnose tool."""
 
     mode: str
-    schema: DiscoveredSchema
+    schema_data: DiscoveredSchema = Field(alias="schema", serialization_alias="schema")
     total: int
     first_timestamp: str | None = None
     last_timestamp: str | None = None

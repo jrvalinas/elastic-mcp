@@ -19,6 +19,7 @@ TIMESTAMP_CANDIDATES: list[str] = [
 
 MESSAGE_CANDIDATES: list[str] = [
     "message",
+    "evento",
     "log",
     "msg",
     "event.original",
@@ -33,6 +34,7 @@ LEVEL_CANDIDATES: list[str] = [
 
 SERVICE_CANDIDATES: list[str] = [
     "service.name",
+    "fields.app",
     "service",
     "app",
     "application",
@@ -41,6 +43,7 @@ SERVICE_CANDIDATES: list[str] = [
 ]
 
 CORRELATION_CANDIDATES: list[str] = [
+    "fields.ets_correlationid",
     "trace.id",
     "transaction.id",
     "correlation.id",
