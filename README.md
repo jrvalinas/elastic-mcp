@@ -23,9 +23,9 @@ Referencia detallada de cada tool en `tools.md`.
 ## Variables de entorno
 
 - `ELASTICSEARCH_URL` (requerida)
-- `ELASTICSEARCH_API_KEY` (preferida)
-- `ELASTICSEARCH_USERNAME` (fallback)
-- `ELASTICSEARCH_PASSWORD` (fallback)
+- `ELASTICSEARCH_API_KEY` (opcional, preferida si el cluster usa auth)
+- `ELASTICSEARCH_USERNAME` (opcional)
+- `ELASTICSEARCH_PASSWORD` (opcional)
 - `ELASTICSEARCH_INDEX_PATTERN` (default: `logs-*`)
 - `ELASTICSEARCH_VERIFY_CERTS` (default: `true`)
 - `ELASTICSEARCH_CA_CERTS` (opcional)
@@ -33,8 +33,8 @@ Referencia detallada de cada tool en `tools.md`.
 Reglas de autenticacion:
 
 1. Si existe `ELASTICSEARCH_API_KEY`, se usa esa.
-2. Si no, se requiere `ELASTICSEARCH_USERNAME` + `ELASTICSEARCH_PASSWORD`.
-3. Si no hay credenciales validas, el servidor falla con error claro.
+2. Si no, y existen `ELASTICSEARCH_USERNAME` + `ELASTICSEARCH_PASSWORD`, se usa basic auth.
+3. Si no hay credenciales, el cliente conecta sin autenticacion.
 
 ## Como funciona el schema discovery
 
@@ -81,7 +81,7 @@ mcp-elastic-logs
 Arranque en red (`streamable-http`):
 
 ```bash
-python -m mcp_elastic_logs.server --transport streamable-http --host 0.0.0.0 --port 8091
+python -m mcp_elastic_logs.server --transport streamable-http --host 0.0.0.0 --port 8093
 ```
 
 ## Ejecucion con Docker
@@ -101,7 +101,7 @@ docker build -t mcp-elastic-logs:latest .
 3) Ejecutar contenedor:
 
 ```bash
-docker run --rm -p 8091:8091 --env-file .env mcp-elastic-logs:latest
+docker run --rm -p 8093:8093 --env-file .env mcp-elastic-logs:latest
 ```
 
 ## Ejecucion con Docker Compose
@@ -110,7 +110,7 @@ docker run --rm -p 8091:8091 --env-file .env mcp-elastic-logs:latest
 docker compose up --build
 ```
 
-El servicio queda escuchando en `http://localhost:8091` con transporte `streamable-http`.
+El servicio queda escuchando en `http://localhost:8093` con transporte `streamable-http`.
 
 ## Entorno de test (Elastic + Kibana + Logstash + MCP)
 
@@ -126,10 +126,10 @@ Servicios disponibles:
 
 - Elasticsearch: `http://localhost:9200`
 - Kibana: `http://localhost:5601`
-- MCP server: `http://localhost:8091`
+- MCP server: `http://localhost:8093`
 
 Nota: este stack de test usa Elasticsearch con seguridad deshabilitada (`xpack.security.enabled=false`).
-El MCP requiere credenciales configuradas por diseno, por eso en el compose de test se inyectan valores dummy (`ELASTICSEARCH_USERNAME=test`, `ELASTICSEARCH_PASSWORD=test`).
+El MCP puede conectar sin credenciales en ese escenario, asi que el compose de test no necesita valores dummy.
 
 ## Configuracion de cliente MCP (ejemplo)
 

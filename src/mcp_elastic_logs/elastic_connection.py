@@ -47,6 +47,9 @@ class ElasticConnectionManager:
         if self._config.api_key:
             return AsyncElasticsearch(api_key=self._config.api_key, **common_kwargs)
 
+        if not self._config.username and not self._config.password:
+            return AsyncElasticsearch(**common_kwargs)
+
         return AsyncElasticsearch(
             basic_auth=(self._config.username or "", self._config.password or ""),
             **common_kwargs,

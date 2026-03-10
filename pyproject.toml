@@ -13,6 +13,7 @@ authors = [
   { name = "MCP Elastic Logs" }
 ]
 dependencies = [
+  "aiohttp>=3.10.0",
   "elasticsearch>=8.14.0",
   "fastmcp>=2.0.0",
   "pydantic>=2.8.0"
