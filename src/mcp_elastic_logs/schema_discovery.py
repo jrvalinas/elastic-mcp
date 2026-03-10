@@ -8,9 +8,9 @@ from typing import Any
 from elasticsearch import AsyncElasticsearch
 from elasticsearch import NotFoundError
 
-from .models import DiscoveredSchema
+from .models import DiscoveredSchema, FieldMappingConfig
 
-TIMESTAMP_CANDIDATES: list[str] = [
+DEFAULT_TIMESTAMP_CANDIDATES: list[str] = [
     "@timestamp",
     "timestamp",
     "time",
@@ -18,21 +18,21 @@ TIMESTAMP_CANDIDATES: list[str] = [
     "event.ingested",
 ]
 
-MESSAGE_CANDIDATES: list[str] = [
+DEFAULT_MESSAGE_CANDIDATES: list[str] = [
     "message",
     "log",
     "msg",
     "event.original",
 ]
 
-LEVEL_CANDIDATES: list[str] = [
+DEFAULT_LEVEL_CANDIDATES: list[str] = [
     "log.level",
     "level",
     "severity",
     "severity_text",
 ]
 
-SERVICE_CANDIDATES: list[str] = [
+DEFAULT_SERVICE_CANDIDATES: list[str] = [
     "service.name",
     "service",
     "app",
@@ -41,7 +41,7 @@ SERVICE_CANDIDATES: list[str] = [
     "container.name",
 ]
 
-CORRELATION_CANDIDATES: list[str] = [
+DEFAULT_CORRELATION_CANDIDATES: list[str] = [
     "trace.id",
     "transaction.id",
     "correlation.id",
@@ -49,6 +49,13 @@ CORRELATION_CANDIDATES: list[str] = [
     "correlation_id",
     "trace_id",
     "req.id",
+]
+
+DEFAULT_HOSTNAME_CANDIDATES: list[str] = [
+    "host.hostname",
+    "host.name",
+    "hostname",
+    "agent.hostname",
 ]
 
 
@@ -155,7 +162,11 @@ async def _fetch_sample_document(
     return hits[0].get("_source", {})
 
 
-async def discover_schema(client: AsyncElasticsearch, index_pattern: str) -> DiscoveredSchema:
+async def discover_schema(
+    client: AsyncElasticsearch,
+    index_pattern: str,
+    field_config: FieldMappingConfig | None = None,
+) -> DiscoveredSchema:
     """Discover likely log fields from unknown schema using index mappings.
 
     Returns a partial schema when some concepts cannot be identified.
@@ -183,30 +194,78 @@ async def discover_schema(client: AsyncElasticsearch, index_pattern: str) -> Dis
         )
 
     sample_doc = await _fetch_sample_document(client, index_pattern)
+    field_config = field_config or FieldMappingConfig()
 
-    timestamp_field = select_preferred_field(available_fields, TIMESTAMP_CANDIDATES, sample_doc)
-    message_field = select_preferred_field(available_fields, MESSAGE_CANDIDATES, sample_doc)
-    level_field = select_preferred_field(available_fields, LEVEL_CANDIDATES, sample_doc)
-    service_field = select_preferred_field(available_fields, SERVICE_CANDIDATES, sample_doc)
-    correlation_field = select_preferred_field(
+    timestamp_candidates = (
+        field_config.extra_timestamp_candidates + DEFAULT_TIMESTAMP_CANDIDATES
+    )
+    message_candidates = field_config.extra_message_candidates + DEFAULT_MESSAGE_CANDIDATES
+    level_candidates = field_config.extra_level_candidates + DEFAULT_LEVEL_CANDIDATES
+    service_candidates = field_config.extra_service_candidates + DEFAULT_SERVICE_CANDIDATES
+    correlation_candidates = (
+        field_config.extra_correlation_candidates + DEFAULT_CORRELATION_CANDIDATES
+    )
+    hostname_candidates = field_config.extra_hostname_candidates + DEFAULT_HOSTNAME_CANDIDATES
+
+    timestamp_field = field_config.timestamp_field or select_preferred_field(
         available_fields,
-        CORRELATION_CANDIDATES,
+        timestamp_candidates,
         sample_doc,
     )
+    message_field = field_config.message_field or select_preferred_field(
+        available_fields,
+        message_candidates,
+        sample_doc,
+    )
+    level_field = field_config.level_field or select_preferred_field(
+        available_fields,
+        level_candidates,
+        sample_doc,
+    )
+    service_field = field_config.service_field or select_preferred_field(
+        available_fields,
+        service_candidates,
+        sample_doc,
+    )
+    correlation_field = field_config.correlation_field or select_preferred_field(
+        available_fields,
+        correlation_candidates,
+        sample_doc,
+    )
+    hostname_field = field_config.hostname_field or select_preferred_field(
+        available_fields,
+        hostname_candidates,
+        sample_doc,
+    )
+
+    message_fallbacks = [f for f in message_candidates if f in available_fields and f != message_field]
+    for fallback in field_config.extra_message_fallbacks:
+        if fallback in available_fields and fallback != message_field and fallback not in message_fallbacks:
+            message_fallbacks.append(fallback)
+
+    # Build keyword_map: for fields used in term queries, prefer .keyword sub-field
+    keyword_map: dict[str, str] = {}
+    for field in [service_field, level_field, correlation_field]:
+        if field and f"{field}.keyword" in available_fields:
+            keyword_map[field] = f"{field}.keyword"
 
     return DiscoveredSchema(
         index_pattern=index_pattern,
         timestamp_field=timestamp_field,
         message_field=message_field,
+        message_fallbacks=message_fallbacks,
         level_field=level_field,
         service_field=service_field,
         correlation_field=correlation_field,
+        hostname_field=hostname_field,
         available_fields_count=len(available_fields),
         candidate_summary={
-            "timestamp": [f for f in TIMESTAMP_CANDIDATES if f in available_fields],
-            "message": [f for f in MESSAGE_CANDIDATES if f in available_fields],
-            "level": [f for f in LEVEL_CANDIDATES if f in available_fields],
-            "service": [f for f in SERVICE_CANDIDATES if f in available_fields],
-            "correlation": [f for f in CORRELATION_CANDIDATES if f in available_fields],
+            "timestamp": [f for f in timestamp_candidates if f in available_fields],
+            "message": [f for f in message_candidates if f in available_fields],
+            "level": [f for f in level_candidates if f in available_fields],
+            "service": [f for f in service_candidates if f in available_fields],
+            "correlation": [f for f in correlation_candidates if f in available_fields],
+            "hostname": [f for f in hostname_candidates if f in available_fields],
         },
+        keyword_map=keyword_map,
     )
