@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from elasticsearch import AsyncElasticsearch
@@ -95,6 +96,50 @@ def select_preferred_field(
     return present_candidates[0]
 
 
+def _collect_mapping_fields(properties: Mapping[str, Any], prefix: str = "") -> set[str]:
+    """Flatten Elasticsearch mapping properties into dotted field paths."""
+    field_names: set[str] = set()
+
+    for field_name, field_config in properties.items():
+        if not field_name:
+            continue
+
+        full_name = f"{prefix}.{field_name}" if prefix else field_name
+        field_names.add(full_name)
+
+        if not isinstance(field_config, Mapping):
+            continue
+
+        nested_properties = field_config.get("properties")
+        if isinstance(nested_properties, Mapping):
+            field_names.update(_collect_mapping_fields(nested_properties, full_name))
+
+        multi_fields = field_config.get("fields")
+        if isinstance(multi_fields, Mapping):
+            field_names.update(_collect_mapping_fields(multi_fields, full_name))
+
+    return field_names
+
+
+def _extract_available_fields(mappings_response: Mapping[str, Any]) -> set[str]:
+    """Collect all mapped field names across matched indices."""
+    available_fields: set[str] = set()
+
+    for index_mapping in mappings_response.values():
+        if not isinstance(index_mapping, Mapping):
+            continue
+
+        mappings = index_mapping.get("mappings")
+        if not isinstance(mappings, Mapping):
+            continue
+
+        properties = mappings.get("properties")
+        if isinstance(properties, Mapping):
+            available_fields.update(_collect_mapping_fields(properties))
+
+    return available_fields
+
+
 async def _fetch_sample_document(
     client: AsyncElasticsearch,
     index_pattern: str,
@@ -114,23 +159,32 @@ async def _fetch_sample_document(
 
 
 async def discover_schema(client: AsyncElasticsearch, index_pattern: str) -> DiscoveredSchema:
-    """Discover likely log fields from unknown schema using `_field_caps`.
+    """Discover likely log fields from unknown schema using index mappings.
 
     Returns a partial schema when some concepts cannot be identified.
     """
     try:
-        field_caps = await client.field_caps(index=index_pattern, fields="*")
+        mappings_response = await client.indices.get_mapping(
+            index=index_pattern,
+            allow_no_indices=True,
+            ignore_unavailable=True,
+        )
     except NotFoundError as exc:
         raise ValueError(f"Index pattern not found: {index_pattern!r}") from exc
 
-    fields_info = field_caps.get("fields", {})
-    if not fields_info:
+    if not mappings_response:
         raise ValueError(
-            f"No fields found for index pattern {index_pattern!r}. "
-            "Check index pattern and permissions."
+            f"No indices matched index pattern {index_pattern!r}. "
+            "Check ELASTICSEARCH_INDEX_PATTERN and whether logs exist."
         )
 
-    available_fields = set(fields_info.keys())
+    available_fields = _extract_available_fields(mappings_response)
+    if not available_fields:
+        raise ValueError(
+            f"No mapped fields found for index pattern {index_pattern!r}. "
+            "Check index mappings and permissions."
+        )
+
     sample_doc = await _fetch_sample_document(client, index_pattern)
 
     timestamp_field = select_preferred_field(available_fields, TIMESTAMP_CANDIDATES, sample_doc)

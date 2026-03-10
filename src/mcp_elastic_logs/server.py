@@ -48,7 +48,7 @@ def main() -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("MCP_PORT", "8091")),
+        default=int(os.getenv("MCP_PORT", "8093")),
         help="Bind port for network transports",
     )
 
