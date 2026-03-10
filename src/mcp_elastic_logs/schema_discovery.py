@@ -54,6 +54,13 @@ CORRELATION_CANDIDATES: list[str] = [
     "req.id",
 ]
 
+HOSTNAME_CANDIDATES: list[str] = [
+    "host.hostname",
+    "host.name",
+    "hostname",
+    "agent.hostname",
+]
+
 
 def get_value_by_path(source: dict[str, Any], field_path: str) -> Any | None:
     """Read a value from dotted path, supporting flattened dotted keys.
@@ -196,14 +203,29 @@ async def discover_schema(client: AsyncElasticsearch, index_pattern: str) -> Dis
         CORRELATION_CANDIDATES,
         sample_doc,
     )
+    hostname_field = select_preferred_field(available_fields, HOSTNAME_CANDIDATES, sample_doc)
+
+    # Message fallbacks: other message candidates available in the mapping (excluding primary)
+    message_fallbacks = [
+        f for f in MESSAGE_CANDIDATES
+        if f in available_fields and f != message_field
+    ]
+
+    # Build keyword_map: for fields used in term queries, prefer .keyword sub-field
+    keyword_map: dict[str, str] = {}
+    for field in [service_field, level_field, correlation_field]:
+        if field and f"{field}.keyword" in available_fields:
+            keyword_map[field] = f"{field}.keyword"
 
     return DiscoveredSchema(
         index_pattern=index_pattern,
         timestamp_field=timestamp_field,
         message_field=message_field,
+        message_fallbacks=message_fallbacks,
         level_field=level_field,
         service_field=service_field,
         correlation_field=correlation_field,
+        hostname_field=hostname_field,
         available_fields_count=len(available_fields),
         candidate_summary={
             "timestamp": [f for f in TIMESTAMP_CANDIDATES if f in available_fields],
@@ -211,5 +233,7 @@ async def discover_schema(client: AsyncElasticsearch, index_pattern: str) -> Dis
             "level": [f for f in LEVEL_CANDIDATES if f in available_fields],
             "service": [f for f in SERVICE_CANDIDATES if f in available_fields],
             "correlation": [f for f in CORRELATION_CANDIDATES if f in available_fields],
+            "hostname": [f for f in HOSTNAME_CANDIDATES if f in available_fields],
         },
+        keyword_map=keyword_map,
     )

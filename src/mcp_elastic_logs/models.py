@@ -14,11 +14,20 @@ class DiscoveredSchema(BaseModel):
     index_pattern: str
     timestamp_field: str | None = None
     message_field: str | None = None
+    message_fallbacks: list[str] = Field(default_factory=list)
     level_field: str | None = None
     service_field: str | None = None
     correlation_field: str | None = None
+    hostname_field: str | None = None
     available_fields_count: int = 0
     candidate_summary: dict[str, list[str]] = Field(default_factory=dict)
+    keyword_map: dict[str, str] = Field(default_factory=dict)
+
+    def term_field(self, field: str | None) -> str | None:
+        """Return the `.keyword` sub-field for term queries when available."""
+        if field is None:
+            return None
+        return self.keyword_map.get(field, field)
 
 
 class NormalizedLogEntry(BaseModel):
@@ -29,6 +38,7 @@ class NormalizedLogEntry(BaseModel):
     level: str | None = None
     message: str | None = None
     correlation_id: str | None = None
+    hostname: str | None = None
     raw_fields: dict[str, Any] = Field(default_factory=dict)
 
 

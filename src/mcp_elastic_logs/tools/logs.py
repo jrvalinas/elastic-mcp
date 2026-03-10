@@ -38,11 +38,18 @@ def _normalize_hit(hit: dict[str, Any], schema: DiscoveredSchema) -> NormalizedL
     service = _to_text(get_value_by_path(source, schema.service_field)) if schema.service_field else None
     level = _to_text(get_value_by_path(source, schema.level_field)) if schema.level_field else None
     message = _to_text(get_value_by_path(source, schema.message_field)) if schema.message_field else None
+    # Fallback: try alternative message fields when primary is empty
+    if not message:
+        for fallback in schema.message_fallbacks:
+            message = _to_text(get_value_by_path(source, fallback))
+            if message:
+                break
     correlation = (
         _to_text(get_value_by_path(source, schema.correlation_field))
         if schema.correlation_field
         else None
     )
+    hostname = _to_text(get_value_by_path(source, schema.hostname_field)) if schema.hostname_field else None
 
     raw_fields = {
         "_index": hit.get("_index"),
@@ -55,29 +62,31 @@ def _normalize_hit(hit: dict[str, Any], schema: DiscoveredSchema) -> NormalizedL
         level=level,
         message=message,
         correlation_id=correlation,
+        hostname=hostname,
         raw_fields=raw_fields,
     )
 
 
-def _build_must_filters(
+def _build_bool_query(
     *,
     schema: DiscoveredSchema,
     service: str | None,
     level: str | None,
     correlation_id: str | None,
     time_range: dict[str, Any],
-) -> list[dict[str, Any]]:
-    filters: list[dict[str, Any]] = [time_range]
+    exclude_messages: list[str] | None,
+) -> dict[str, Any]:
+    must: list[dict[str, Any]] = [time_range]
 
     if service:
         if not schema.service_field:
             raise ValueError("Service filter requested, but no service field was discovered.")
-        filters.append({"term": {schema.service_field: service}})
+        must.append({"term": {schema.term_field(schema.service_field): service}})
 
     if level:
         if not schema.level_field:
             raise ValueError("Level filter requested, but no level field was discovered.")
-        filters.append({"term": {schema.level_field: level}})
+        must.append({"term": {schema.term_field(schema.level_field): level}})
 
     if correlation_id:
         if not schema.correlation_field:
@@ -85,9 +94,26 @@ def _build_must_filters(
                 "Correlation search requested, but no correlation field was discovered. "
                 "Run discover_log_schema to inspect available fields."
             )
-        filters.append({"term": {schema.correlation_field: correlation_id}})
+        query_field = schema.term_field(schema.correlation_field)
+        stripped = correlation_id.strip()
+        must.append({"wildcard": {query_field: {"value": f"*{stripped}*"}}})
 
-    return filters
+    bool_query: dict[str, Any] = {"must": must}
+
+    if exclude_messages:
+        # Build must_not: match pattern against message field + fallbacks
+        message_fields = []
+        if schema.message_field:
+            message_fields.append(schema.message_field)
+        message_fields.extend(schema.message_fallbacks)
+
+        must_not: list[dict[str, Any]] = []
+        for pattern in exclude_messages:
+            for field in message_fields:
+                must_not.append({"wildcard": {field: {"value": f"*{pattern}*"}}})
+        bool_query["must_not"] = must_not
+
+    return bool_query
 
 
 async def _search_logs(
@@ -102,6 +128,7 @@ async def _search_logs(
     end: datetime | str | None,
     limit: int,
     sort_order: str,
+    exclude_messages: list[str] | None = None,
 ) -> LogSearchResponse:
     if limit <= 0:
         raise ValueError("`limit` must be greater than 0.")
@@ -123,23 +150,25 @@ async def _search_logs(
         schema.timestamp_field,
     )
 
-    must_filters = _build_must_filters(
+    bool_query = _build_bool_query(
         schema=schema,
         service=service,
         level=level,
         correlation_id=correlation_id,
         time_range=time_query,
+        exclude_messages=exclude_messages,
     )
 
     source_fields = [schema.message_field, schema.timestamp_field]
-    for optional_field in [schema.level_field, schema.service_field, schema.correlation_field]:
+    source_fields.extend(schema.message_fallbacks)
+    for optional_field in [schema.level_field, schema.service_field, schema.correlation_field, schema.hostname_field]:
         if optional_field:
             source_fields.append(optional_field)
 
     try:
         result = await client.search(
             index=index_pattern,
-            query={"bool": {"must": must_filters}},
+            query={"bool": bool_query},
             sort=[{schema.timestamp_field: {"order": sort_order}}],
             size=limit,
             _source=source_fields,
@@ -183,8 +212,10 @@ def register_log_tools(mcp: FastMCP) -> None:
         service: str | None = None,
         level: str | None = None,
         last: str = "15m",
+        exclude_messages: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch latest logs, optionally filtered by service and level."""
+        """Fetch latest logs, optionally filtered by service and level.
+        Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
         schema = await discover_schema(client, config.index_pattern)
@@ -199,6 +230,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             end=None,
             limit=limit,
             sort_order="desc",
+            exclude_messages=exclude_messages,
         )
         return response.model_dump(by_alias=True)
 
@@ -210,8 +242,10 @@ def register_log_tools(mcp: FastMCP) -> None:
         end: datetime | str | None = None,
         level: str | None = None,
         limit: int = 200,
+        exclude_messages: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch logs for a service in a chosen time range."""
+        """Fetch logs for a service in a chosen time range.
+        Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
         schema = await discover_schema(client, config.index_pattern)
@@ -230,6 +264,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             end=end,
             limit=limit,
             sort_order="desc",
+            exclude_messages=exclude_messages,
         )
         return response.model_dump(by_alias=True)
 
@@ -240,8 +275,10 @@ def register_log_tools(mcp: FastMCP) -> None:
         start: datetime | str | None = None,
         end: datetime | str | None = None,
         limit: int = 500,
+        exclude_messages: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch all logs for a correlation/trace/request id."""
+        """Fetch all logs for a correlation/trace/request id.
+        Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
         schema = await discover_schema(client, config.index_pattern)
@@ -264,6 +301,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             end=end,
             limit=limit,
             sort_order="asc",
+            exclude_messages=exclude_messages,
         )
         return response.model_dump(by_alias=True)
 
@@ -276,8 +314,10 @@ def register_log_tools(mcp: FastMCP) -> None:
         end: datetime | str | None = None,
         level: str | None = None,
         limit: int = 200,
+        exclude_messages: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Convenience diagnosis tool combining search + small summary."""
+        """Convenience diagnosis tool combining search + small summary.
+        Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         if not correlation_id and not service:
             raise ValueError("Provide either `correlation_id` or `service` for diagnose_issue.")
 
@@ -297,6 +337,7 @@ def register_log_tools(mcp: FastMCP) -> None:
             end=end,
             limit=limit,
             sort_order="asc" if correlation_id else "desc",
+            exclude_messages=exclude_messages,
         )
 
         levels = [entry.level for entry in response.logs if entry.level]
