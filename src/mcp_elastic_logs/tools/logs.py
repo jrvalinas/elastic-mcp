@@ -203,7 +203,7 @@ def register_log_tools(mcp: FastMCP) -> None:
         """Discover likely timestamp/message/service/level/correlation fields."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
-        schema = await discover_schema(client, config.index_pattern)
+        schema = await discover_schema(client, config.index_pattern, config.field_mapping)
         return schema.model_dump()
 
     @mcp.tool()
@@ -218,7 +218,7 @@ def register_log_tools(mcp: FastMCP) -> None:
         Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
-        schema = await discover_schema(client, config.index_pattern)
+        schema = await discover_schema(client, config.index_pattern, config.field_mapping)
         response = await _search_logs(
             index_pattern=config.index_pattern,
             schema=schema,
@@ -248,7 +248,7 @@ def register_log_tools(mcp: FastMCP) -> None:
         Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
-        schema = await discover_schema(client, config.index_pattern)
+        schema = await discover_schema(client, config.index_pattern, config.field_mapping)
 
         if not last and not start and not end:
             last = "15m"
@@ -281,7 +281,7 @@ def register_log_tools(mcp: FastMCP) -> None:
         Use exclude_messages to filter out logs matching wildcard patterns (e.g. ["/health", "heartbeat"])."""
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
-        schema = await discover_schema(client, config.index_pattern)
+        schema = await discover_schema(client, config.index_pattern, config.field_mapping)
 
         if not schema.correlation_field:
             raise ValueError(
@@ -323,7 +323,7 @@ def register_log_tools(mcp: FastMCP) -> None:
 
         config = ElasticConfig.from_env()
         client = get_connection_manager().get_client()
-        schema = await discover_schema(client, config.index_pattern)
+        schema = await discover_schema(client, config.index_pattern, config.field_mapping)
 
         mode = "correlation" if correlation_id else "service"
         response = await _search_logs(

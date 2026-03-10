@@ -8,6 +8,26 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class FieldMappingConfig(BaseModel):
+    """User-provided field mapping overrides and extra candidates."""
+
+    timestamp_field: str | None = None
+    message_field: str | None = None
+    level_field: str | None = None
+    service_field: str | None = None
+    correlation_field: str | None = None
+    hostname_field: str | None = None
+
+    extra_timestamp_candidates: list[str] = Field(default_factory=list)
+    extra_message_candidates: list[str] = Field(default_factory=list)
+    extra_level_candidates: list[str] = Field(default_factory=list)
+    extra_service_candidates: list[str] = Field(default_factory=list)
+    extra_correlation_candidates: list[str] = Field(default_factory=list)
+    extra_hostname_candidates: list[str] = Field(default_factory=list)
+
+    extra_message_fallbacks: list[str] = Field(default_factory=list)
+
+
 class DiscoveredSchema(BaseModel):
     """Resolved source fields for normalized log concepts."""
 
