@@ -2,7 +2,7 @@ services:
   mcp-elastic-logs:
     build: .
     ports:
-      - "0.0.0.0:8091:8091"
+      - "0.0.0.0:8093:8093"
     environment:
       - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
       - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY}
@@ -13,7 +13,7 @@ services:
       - ELASTICSEARCH_CA_CERTS=${ELASTICSEARCH_CA_CERTS}
       - MCP_TRANSPORT=streamable-http
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8091
+      - MCP_PORT=8093
     env_file:
       - .env
     restart: unless-stopped

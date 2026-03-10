@@ -44,12 +44,6 @@ class ElasticConfig:
         username = os.getenv("ELASTICSEARCH_USERNAME")
         password = os.getenv("ELASTICSEARCH_PASSWORD")
 
-        if not api_key and not (username and password):
-            raise ValueError(
-                "Missing Elasticsearch authentication. Set ELASTICSEARCH_API_KEY "
-                "or ELASTICSEARCH_USERNAME + ELASTICSEARCH_PASSWORD."
-            )
-
         index_pattern = os.getenv("ELASTICSEARCH_INDEX_PATTERN", "logs-*")
         verify_certs = _parse_bool(os.getenv("ELASTICSEARCH_VERIFY_CERTS"), True)
         ca_certs = os.getenv("ELASTICSEARCH_CA_CERTS")
